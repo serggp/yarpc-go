@@ -28,7 +28,10 @@ import (
 )
 
 // UnaryValidatorOutbound wraps an Outbound to validate all outgoing unary requests.
-type UnaryValidatorOutbound struct{ transport.UnaryOutbound }
+type UnaryValidatorOutbound struct {
+	transport.Namer
+	transport.UnaryOutbound
+}
 
 // Call performs the given request, failing early if the request is invalid.
 func (o UnaryValidatorOutbound) Call(ctx context.Context, request *transport.Request) (*transport.Response, error) {
@@ -52,7 +55,10 @@ func (o UnaryValidatorOutbound) Introspect() introspection.OutboundStatus {
 }
 
 // OnewayValidatorOutbound wraps an Outbound to validate all outgoing oneway requests.
-type OnewayValidatorOutbound struct{ transport.OnewayOutbound }
+type OnewayValidatorOutbound struct {
+	transport.Namer
+	transport.OnewayOutbound
+}
 
 // CallOneway performs the given request, failing early if the request is invalid.
 func (o OnewayValidatorOutbound) CallOneway(ctx context.Context, request *transport.Request) (transport.Ack, error) {
@@ -76,7 +82,10 @@ func (o OnewayValidatorOutbound) Introspect() introspection.OutboundStatus {
 }
 
 // StreamValidatorOutbound wraps an Outbound to validate all outgoing oneway requests.
-type StreamValidatorOutbound struct{ transport.StreamOutbound }
+type StreamValidatorOutbound struct {
+	transport.Namer
+	transport.StreamOutbound
+}
 
 // CallStream performs the given request, failing early if the request is invalid.
 func (o StreamValidatorOutbound) CallStream(ctx context.Context, request *transport.StreamRequest) (*transport.ClientStream, error) {
