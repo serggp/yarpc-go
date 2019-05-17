@@ -29,6 +29,13 @@ import (
 	"go.uber.org/yarpc/pkg/lifecycle"
 )
 
+var (
+	_ transport.Namer          = (*FakeOutbound)(nil)
+	_ transport.UnaryOutbound  = (*FakeOutbound)(nil)
+	_ transport.OnewayOutbound = (*FakeOutbound)(nil)
+	_ transport.StreamOutbound = (*FakeOutbound)(nil)
+)
+
 // FakeOutboundOption is an option for FakeTransport.NewOutbound.
 type FakeOutboundOption func(*FakeOutbound)
 
@@ -42,9 +49,24 @@ func NopOutboundOption(nopOption string) FakeOutboundOption {
 	}
 }
 
+// OutboundName sets the name of the "fake" outbound.
+func OutboundName(name string) FakeOutboundOption {
+	return func(o *FakeOutbound) {
+		o.name = name
+	}
+}
+
 // OutboundCallable is a function that will be called for for an outbound's
 // `Call` method.
 type OutboundCallable func(ctx context.Context, req *transport.Request) (*transport.Response, error)
+
+// OutboundOnewayCallable is a function that will be called for for an outbound's
+// `Call` method.
+type OutboundOnewayCallable func(context.Context, *transport.Request) (transport.Ack, error)
+
+// OutboundStreamCallable is a function that will be called for for an outbound's
+// `Call` method.
+type OutboundStreamCallable func(context.Context, *transport.StreamRequest) (*transport.ClientStream, error)
 
 // OutboundCallOverride returns an option to set the "callOverride" for a
 // FakeTransport.NewOutbound.
@@ -56,9 +78,32 @@ func OutboundCallOverride(callable OutboundCallable) FakeOutboundOption {
 	}
 }
 
+// OutboundCallOnewayOverride returns an option to set the "callOverride" for a
+// FakeTransport.NewOutbound.
+//
+// This can be used to set the functionality for the FakeOutbound's `CallOneway`
+// function.
+func OutboundCallOnewayOverride(callable OutboundOnewayCallable) FakeOutboundOption {
+	return func(o *FakeOutbound) {
+		o.callOnewayOverride = callable
+	}
+}
+
+// OutboundCallStreamOverride returns an option to set the "callOverride" for a
+// FakeTransport.NewOutbound.
+//
+// This can be used to set the functionality for the FakeOutbound's `CallStream`
+// function.
+func OutboundCallStreamOverride(callable OutboundStreamCallable) FakeOutboundOption {
+	return func(o *FakeOutbound) {
+		o.callStreamOverride = callable
+	}
+}
+
 // NewOutbound returns a FakeOutbound with a given peer chooser and options.
 func (t *FakeTransport) NewOutbound(c peer.Chooser, opts ...FakeOutboundOption) *FakeOutbound {
 	o := &FakeOutbound{
+		name:      "fake",
 		once:      lifecycle.NewOnce(),
 		transport: t,
 		chooser:   c,
@@ -71,11 +116,20 @@ func (t *FakeTransport) NewOutbound(c peer.Chooser, opts ...FakeOutboundOption) 
 
 // FakeOutbound is a unary outbound for the FakeTransport. It is fake.
 type FakeOutbound struct {
-	once         *lifecycle.Once
-	transport    *FakeTransport
-	chooser      peer.Chooser
-	nopOption    string
-	callOverride OutboundCallable
+	name      string
+	once      *lifecycle.Once
+	transport *FakeTransport
+	chooser   peer.Chooser
+	nopOption string
+
+	callOverride       OutboundCallable
+	callOnewayOverride OutboundOnewayCallable
+	callStreamOverride OutboundStreamCallable
+}
+
+// Name is the transport of the outbound.
+func (o *FakeOutbound) Name() string {
+	return o.name
 }
 
 // Chooser returns theis FakeOutbound's peer chooser.
@@ -118,10 +172,16 @@ func (o *FakeOutbound) Call(ctx context.Context, req *transport.Request) (*trans
 
 // CallOneway pretends to send a oneway RPC, but actually just returns an error.
 func (o *FakeOutbound) CallOneway(ctx context.Context, req *transport.Request) (transport.Ack, error) {
+	if o.callOnewayOverride != nil {
+		return o.callOnewayOverride(ctx, req)
+	}
 	return nil, fmt.Errorf(`fake outbound does not support call oneway`)
 }
 
 // CallStream pretends to send a Stream RPC, but actually just returns an error.
 func (o *FakeOutbound) CallStream(ctx context.Context, req *transport.StreamRequest) (*transport.ClientStream, error) {
+	if o.callStreamOverride != nil {
+		return o.callStreamOverride(ctx, req)
+	}
 	return nil, fmt.Errorf(`fake outbound does not support call stream`)
 }
