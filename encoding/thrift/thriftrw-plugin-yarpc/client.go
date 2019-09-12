@@ -33,9 +33,11 @@ const clientTemplate = `
 <$pkgname := printf "%sclient" (lower .Name)>
 package <$pkgname>
 
-<$yarpc     := import "go.uber.org/yarpc">
-<$transport := import "go.uber.org/yarpc/api/transport">
-<$thrift    := import "go.uber.org/yarpc/encoding/thrift">
+<$yarpc       := import "go.uber.org/yarpc">
+<$encodingapi := import "go.uber.org/yarpc/api/encoding">
+<$transport   := import "go.uber.org/yarpc/api/transport">
+<$thrift      := import "go.uber.org/yarpc/encoding/thrift">
+<$encoding    := import "go.uber.org/yarpc/pkg/encoding">
 
 </* Note that we import things like "context" inside loops rather than at the
     top-level because they will end up unused if the service does not have any
@@ -70,6 +72,7 @@ func New(c <$transport>.ClientConfig, opts ...<$thrift>.ClientOption) Interface 
 			Service: "<.Name>",
 			ClientConfig: c,
 		}, opts...),
+		adapterProvider: <$encodingapi>.NopAdapterProvider,
 		<if .Parent>
 		Interface: <import .ParentClientPackagePath>.New(
 			c,
@@ -82,6 +85,49 @@ func New(c <$transport>.ClientConfig, opts ...<$thrift>.ClientOption) Interface 
 	}
 }
 
+// Config is a forwards compatible configuration struct for the <.Name> service.
+type Config struct {
+	AdapterProvider <$encodingapi>.AdapterProvider
+}
+
+// NewFromConfig builds a new client for the <.Name> service.
+func NewFromConfig(cc <$transport>.ClientConfig, cfg Config, opts ...<$thrift>.ClientOption) (Interface, error) {
+	const thriftService = "<.Name>"
+
+	thriftClient := <$thrift>.New(<$thrift>.Config{
+		Service: thriftService,
+		ClientConfig: cc,
+	}, opts...)
+
+	if cfg.AdapterProvider == nil {
+		cfg.AdapterProvider = <$encodingapi>.NopAdapterProvider
+	}
+	adapterClient, err := <$encoding>.NewAdapter(
+		<$encoding>.AdapterConfig{
+			ClientConfig: cc,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return client{
+		c: thriftClient,
+		adapterClient: adapterClient,
+		<if .Parent>
+		Interface: <import .ParentClientPackagePath>.New(
+			cc,
+			append(
+				opts,
+				<$thrift>.Named("<.Name>"),
+			)...,
+		),
+		<end>
+		thriftService:   thriftService,
+		cc:              cc,
+		adapterProvider: cfg.AdapterProvider,
+	}, nil
+}
 
 func init() {
 	<$yarpc>.RegisterClientBuilder(
@@ -95,6 +141,10 @@ type client struct {
 	<if .Parent><import .ParentClientPackagePath>.Interface
 	<end>
 	c <$thrift>.Client
+	adapterClient   <$encoding>.AdapterClient
+	thriftService   string
+	cc              transport.ClientConfig
+	adapterProvider <$encodingapi>.AdapterProvider
 }
 
 <$service := .>
@@ -113,19 +163,42 @@ func (c client) <.Name>(
 	return c.c.CallOneway(ctx, args, opts...)
 }
 <else>) (<if .ReturnType>success <formatType .ReturnType>,<end> err error) {
-	<$wire := import "go.uber.org/thriftrw/wire">
+	<$procedure   := import "go.uber.org/yarpc/pkg/procedure">
 	args := <$prefix>Helper.Args(<range .Arguments>_<.Name>, <end>)
-
-	<if $sanitize>ctx = <import "github.com/uber/tchannel-go">.WithoutHeaders(ctx)<end>
-	var body <$wire>.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result <$prefix>Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return <if .ReturnType>success, <end>err
+		}
+		<$fmt := import "fmt">
+		var ok bool
+		result, ok = res.(<$prefix>Result)
+		if !ok {
+			return <if .ReturnType>success, <end><$fmt>.Errorf("thrift adapter returned invalid type for procedure, expected '<$prefix>Result', got '%T'", res)
+		}
+
+	} else {
+		<$wire := import "go.uber.org/thriftrw/wire">
+		<if $sanitize>ctx = <import "github.com/uber/tchannel-go">.WithoutHeaders(ctx)<end>
+		var body <$wire>.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	<if .ReturnType>success, <end>err = <$prefix>Helper.UnwrapResponse(&result)

@@ -55,7 +55,7 @@ func TestFxClient(t *testing.T) {
 		p := storefx.Params{
 			Provider: d,
 		}
-		f := storefx.Client("store").(func(storefx.Params) storefx.Result)
+		f := storefx.Client("store").(func(storefx.Params) (storefx.Result, error))
 		f(p)
 	}, "failed to build client")
 

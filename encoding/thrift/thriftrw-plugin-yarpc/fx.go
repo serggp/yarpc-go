@@ -68,16 +68,18 @@ const fxClientTemplate = `
 <$pkgname := printf "%sfx" (lower .Name)>
 package <$pkgname>
 
-<$yarpc := import "go.uber.org/yarpc">
-<$thrift := import "go.uber.org/yarpc/encoding/thrift">
-<$client := import .ClientPackagePath>
-<$fx := import "go.uber.org/fx">
+<$yarpc       := import "go.uber.org/yarpc">
+<$encodingapi := import "go.uber.org/yarpc/api/encoding">
+<$thrift      := import "go.uber.org/yarpc/encoding/thrift">
+<$client      := import .ClientPackagePath>
+<$fx          := import "go.uber.org/fx">
 
 // Params defines the dependencies for the <.Name> client.
 type Params struct {
 	<$fx>.In
 
 	Provider <$yarpc>.ClientConfig
+	AdapterProvider <$encodingapi>.AdapterProvider ` + "`" + `optional:"true"` + "`" + `
 }
 
 // Result defines the output of the <.Name> client module. It provides a
@@ -100,9 +102,17 @@ type Result struct {
 // 		newHandler,
 // 	)
 func Client(name string, opts ...<$thrift>.ClientOption) interface{} {
-	return func(p Params) Result {
-		client := <$client>.New(p.Provider.ClientConfig(name), opts...)
-		return Result{Client: client}
+	return func(p Params) (Result, error) {
+		client, err := <$client>.NewFromConfig(
+			p.Provider.ClientConfig(name),
+			<$client>.Config{
+				AdapterProvider: p.AdapterProvider,
+			},
+			opts...)
+		if err != nil {
+			return Result{}, err
+		}
+		return Result{Client: client}, nil
 	}
 }`
 
