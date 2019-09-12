@@ -26,9 +26,11 @@ package onewayclient
 import (
 	context "context"
 	yarpc "go.uber.org/yarpc"
+	encoding "go.uber.org/yarpc/api/encoding"
 	transport "go.uber.org/yarpc/api/transport"
 	thrift "go.uber.org/yarpc/encoding/thrift"
 	oneway "go.uber.org/yarpc/internal/crossdock/thrift/oneway"
+	encoding2 "go.uber.org/yarpc/pkg/encoding"
 	reflect "reflect"
 )
 
@@ -50,7 +52,44 @@ func New(c transport.ClientConfig, opts ...thrift.ClientOption) Interface {
 			Service:      "Oneway",
 			ClientConfig: c,
 		}, opts...),
+		adapterProvider: encoding.NopAdapterProvider,
 	}
+}
+
+// Config is a forwards compatible configuration struct for the Oneway service.
+type Config struct {
+	AdapterProvider encoding.AdapterProvider
+}
+
+// NewFromConfig builds a new client for the Oneway service.
+func NewFromConfig(cc transport.ClientConfig, cfg Config, opts ...thrift.ClientOption) (Interface, error) {
+	const thriftService = "Oneway"
+
+	thriftClient := thrift.New(thrift.Config{
+		Service:      thriftService,
+		ClientConfig: cc,
+	}, opts...)
+
+	if cfg.AdapterProvider == nil {
+		cfg.AdapterProvider = encoding.NopAdapterProvider
+	}
+	adapterClient, err := encoding2.NewAdapterClient(
+		encoding2.AdapterClientConfig{
+			ClientConfig: cc,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return client{
+		c:             thriftClient,
+		adapterClient: adapterClient,
+
+		thriftService:   thriftService,
+		cc:              cc,
+		adapterProvider: cfg.AdapterProvider,
+	}, nil
 }
 
 func init() {
@@ -62,7 +101,11 @@ func init() {
 }
 
 type client struct {
-	c thrift.Client
+	c               thrift.Client
+	adapterClient   encoding2.AdapterClient
+	thriftService   string
+	cc              transport.ClientConfig
+	adapterProvider encoding.AdapterProvider
 }
 
 func (c client) Echo(

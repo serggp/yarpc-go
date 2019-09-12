@@ -25,11 +25,15 @@ package helloclient
 
 import (
 	context "context"
+	fmt "fmt"
 	wire "go.uber.org/thriftrw/wire"
 	yarpc "go.uber.org/yarpc"
+	encoding "go.uber.org/yarpc/api/encoding"
 	transport "go.uber.org/yarpc/api/transport"
 	thrift "go.uber.org/yarpc/encoding/thrift"
 	echo "go.uber.org/yarpc/internal/examples/thrift-hello/hello/echo"
+	encoding2 "go.uber.org/yarpc/pkg/encoding"
+	procedure "go.uber.org/yarpc/pkg/procedure"
 	reflect "reflect"
 )
 
@@ -51,7 +55,44 @@ func New(c transport.ClientConfig, opts ...thrift.ClientOption) Interface {
 			Service:      "Hello",
 			ClientConfig: c,
 		}, opts...),
+		adapterProvider: encoding.NopAdapterProvider,
 	}
+}
+
+// Config is a forwards compatible configuration struct for the Hello service.
+type Config struct {
+	AdapterProvider encoding.AdapterProvider
+}
+
+// NewFromConfig builds a new client for the Hello service.
+func NewFromConfig(cc transport.ClientConfig, cfg Config, opts ...thrift.ClientOption) (Interface, error) {
+	const thriftService = "Hello"
+
+	thriftClient := thrift.New(thrift.Config{
+		Service:      thriftService,
+		ClientConfig: cc,
+	}, opts...)
+
+	if cfg.AdapterProvider == nil {
+		cfg.AdapterProvider = encoding.NopAdapterProvider
+	}
+	adapterClient, err := encoding2.NewAdapterClient(
+		encoding2.AdapterClientConfig{
+			ClientConfig: cc,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return client{
+		c:             thriftClient,
+		adapterClient: adapterClient,
+
+		thriftService:   thriftService,
+		cc:              cc,
+		adapterProvider: cfg.AdapterProvider,
+	}, nil
 }
 
 func init() {
@@ -63,7 +104,11 @@ func init() {
 }
 
 type client struct {
-	c thrift.Client
+	c               thrift.Client
+	adapterClient   encoding2.AdapterClient
+	thriftService   string
+	cc              transport.ClientConfig
+	adapterProvider encoding.AdapterProvider
 }
 
 func (c client) Echo(
@@ -73,16 +118,39 @@ func (c client) Echo(
 ) (success *echo.EchoResponse, err error) {
 
 	args := echo.Hello_Echo_Helper.Args(_Echo)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result echo.Hello_Echo_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(echo.Hello_Echo_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'echo.Hello_Echo_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = echo.Hello_Echo_Helper.UnwrapResponse(&result)

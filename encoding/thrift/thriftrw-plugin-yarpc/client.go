@@ -102,8 +102,8 @@ func NewFromConfig(cc <$transport>.ClientConfig, cfg Config, opts ...<$thrift>.C
 	if cfg.AdapterProvider == nil {
 		cfg.AdapterProvider = <$encodingapi>.NopAdapterProvider
 	}
-	adapterClient, err := <$encoding>.NewAdapter(
-		<$encoding>.AdapterConfig{
+	adapterClient, err := <$encoding>.NewAdapterClient(
+		<$encoding>.AdapterClientConfig{
 			ClientConfig: cc,
 		},
 	)

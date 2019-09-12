@@ -6,6 +6,7 @@ package barfx
 import (
 	fx "go.uber.org/fx"
 	yarpc "go.uber.org/yarpc"
+	encoding "go.uber.org/yarpc/api/encoding"
 	thrift "go.uber.org/yarpc/encoding/thrift"
 	barclient "go.uber.org/yarpc/encoding/thrift/thriftrw-plugin-yarpc/internal/tests/extends/barclient"
 )
@@ -14,7 +15,8 @@ import (
 type Params struct {
 	fx.In
 
-	Provider yarpc.ClientConfig
+	Provider        yarpc.ClientConfig
+	AdapterProvider encoding.AdapterProvider `optional:"true"`
 }
 
 // Result defines the output of the Bar client module. It provides a
@@ -37,8 +39,16 @@ type Result struct {
 // 		newHandler,
 // 	)
 func Client(name string, opts ...thrift.ClientOption) interface{} {
-	return func(p Params) Result {
-		client := barclient.New(p.Provider.ClientConfig(name), opts...)
-		return Result{Client: client}
+	return func(p Params) (Result, error) {
+		client, err := barclient.NewFromConfig(
+			p.Provider.ClientConfig(name),
+			barclient.Config{
+				AdapterProvider: p.AdapterProvider,
+			},
+			opts...)
+		if err != nil {
+			return Result{}, err
+		}
+		return Result{Client: client}, nil
 	}
 }

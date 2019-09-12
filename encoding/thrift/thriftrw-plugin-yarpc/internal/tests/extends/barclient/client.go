@@ -5,9 +5,11 @@ package barclient
 
 import (
 	yarpc "go.uber.org/yarpc"
+	encoding "go.uber.org/yarpc/api/encoding"
 	transport "go.uber.org/yarpc/api/transport"
 	thrift "go.uber.org/yarpc/encoding/thrift"
 	fooclient "go.uber.org/yarpc/encoding/thrift/thriftrw-plugin-yarpc/internal/tests/extends/fooclient"
+	encoding2 "go.uber.org/yarpc/pkg/encoding"
 	reflect "reflect"
 )
 
@@ -25,6 +27,7 @@ func New(c transport.ClientConfig, opts ...thrift.ClientOption) Interface {
 			Service:      "Bar",
 			ClientConfig: c,
 		}, opts...),
+		adapterProvider: encoding.NopAdapterProvider,
 
 		Interface: fooclient.New(
 			c,
@@ -34,6 +37,50 @@ func New(c transport.ClientConfig, opts ...thrift.ClientOption) Interface {
 			)...,
 		),
 	}
+}
+
+// Config is a forwards compatible configuration struct for the Bar service.
+type Config struct {
+	AdapterProvider encoding.AdapterProvider
+}
+
+// NewFromConfig builds a new client for the Bar service.
+func NewFromConfig(cc transport.ClientConfig, cfg Config, opts ...thrift.ClientOption) (Interface, error) {
+	const thriftService = "Bar"
+
+	thriftClient := thrift.New(thrift.Config{
+		Service:      thriftService,
+		ClientConfig: cc,
+	}, opts...)
+
+	if cfg.AdapterProvider == nil {
+		cfg.AdapterProvider = encoding.NopAdapterProvider
+	}
+	adapterClient, err := encoding2.NewAdapterClient(
+		encoding2.AdapterClientConfig{
+			ClientConfig: cc,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return client{
+		c:             thriftClient,
+		adapterClient: adapterClient,
+
+		Interface: fooclient.New(
+			cc,
+			append(
+				opts,
+				thrift.Named("Bar"),
+			)...,
+		),
+
+		thriftService:   thriftService,
+		cc:              cc,
+		adapterProvider: cfg.AdapterProvider,
+	}, nil
 }
 
 func init() {
@@ -47,5 +94,9 @@ func init() {
 type client struct {
 	fooclient.Interface
 
-	c thrift.Client
+	c               thrift.Client
+	adapterClient   encoding2.AdapterClient
+	thriftService   string
+	cc              transport.ClientConfig
+	adapterProvider encoding.AdapterProvider
 }

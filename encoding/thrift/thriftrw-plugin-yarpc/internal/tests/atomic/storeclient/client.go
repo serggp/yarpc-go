@@ -5,12 +5,16 @@ package storeclient
 
 import (
 	context "context"
+	fmt "fmt"
 	wire "go.uber.org/thriftrw/wire"
 	yarpc "go.uber.org/yarpc"
+	encoding "go.uber.org/yarpc/api/encoding"
 	transport "go.uber.org/yarpc/api/transport"
 	thrift "go.uber.org/yarpc/encoding/thrift"
 	atomic "go.uber.org/yarpc/encoding/thrift/thriftrw-plugin-yarpc/internal/tests/atomic"
 	readonlystoreclient "go.uber.org/yarpc/encoding/thrift/thriftrw-plugin-yarpc/internal/tests/atomic/readonlystoreclient"
+	encoding2 "go.uber.org/yarpc/pkg/encoding"
+	procedure "go.uber.org/yarpc/pkg/procedure"
 	reflect "reflect"
 )
 
@@ -47,6 +51,7 @@ func New(c transport.ClientConfig, opts ...thrift.ClientOption) Interface {
 			Service:      "Store",
 			ClientConfig: c,
 		}, opts...),
+		adapterProvider: encoding.NopAdapterProvider,
 
 		Interface: readonlystoreclient.New(
 			c,
@@ -56,6 +61,50 @@ func New(c transport.ClientConfig, opts ...thrift.ClientOption) Interface {
 			)...,
 		),
 	}
+}
+
+// Config is a forwards compatible configuration struct for the Store service.
+type Config struct {
+	AdapterProvider encoding.AdapterProvider
+}
+
+// NewFromConfig builds a new client for the Store service.
+func NewFromConfig(cc transport.ClientConfig, cfg Config, opts ...thrift.ClientOption) (Interface, error) {
+	const thriftService = "Store"
+
+	thriftClient := thrift.New(thrift.Config{
+		Service:      thriftService,
+		ClientConfig: cc,
+	}, opts...)
+
+	if cfg.AdapterProvider == nil {
+		cfg.AdapterProvider = encoding.NopAdapterProvider
+	}
+	adapterClient, err := encoding2.NewAdapterClient(
+		encoding2.AdapterClientConfig{
+			ClientConfig: cc,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return client{
+		c:             thriftClient,
+		adapterClient: adapterClient,
+
+		Interface: readonlystoreclient.New(
+			cc,
+			append(
+				opts,
+				thrift.Named("Store"),
+			)...,
+		),
+
+		thriftService:   thriftService,
+		cc:              cc,
+		adapterProvider: cfg.AdapterProvider,
+	}, nil
 }
 
 func init() {
@@ -69,7 +118,11 @@ func init() {
 type client struct {
 	readonlystoreclient.Interface
 
-	c thrift.Client
+	c               thrift.Client
+	adapterClient   encoding2.AdapterClient
+	thriftService   string
+	cc              transport.ClientConfig
+	adapterProvider encoding.AdapterProvider
 }
 
 func (c client) CompareAndSwap(
@@ -79,16 +132,39 @@ func (c client) CompareAndSwap(
 ) (err error) {
 
 	args := atomic.Store_CompareAndSwap_Helper.Args(_Request)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result atomic.Store_CompareAndSwap_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return err
+		}
+
+		var ok bool
+		result, ok = res.(atomic.Store_CompareAndSwap_Result)
+		if !ok {
+			return fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'atomic.Store_CompareAndSwap_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	err = atomic.Store_CompareAndSwap_Helper.UnwrapResponse(&result)
@@ -112,16 +188,39 @@ func (c client) Increment(
 ) (err error) {
 
 	args := atomic.Store_Increment_Helper.Args(_Key, _Value)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result atomic.Store_Increment_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return err
+		}
+
+		var ok bool
+		result, ok = res.(atomic.Store_Increment_Result)
+		if !ok {
+			return fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'atomic.Store_Increment_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	err = atomic.Store_Increment_Helper.UnwrapResponse(&result)

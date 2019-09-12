@@ -25,11 +25,15 @@ package secondserviceclient
 
 import (
 	context "context"
+	fmt "fmt"
 	wire "go.uber.org/thriftrw/wire"
 	yarpc "go.uber.org/yarpc"
+	encoding "go.uber.org/yarpc/api/encoding"
 	transport "go.uber.org/yarpc/api/transport"
 	thrift "go.uber.org/yarpc/encoding/thrift"
 	gauntlet "go.uber.org/yarpc/internal/crossdock/thrift/gauntlet"
+	encoding2 "go.uber.org/yarpc/pkg/encoding"
+	procedure "go.uber.org/yarpc/pkg/procedure"
 	reflect "reflect"
 )
 
@@ -56,7 +60,44 @@ func New(c transport.ClientConfig, opts ...thrift.ClientOption) Interface {
 			Service:      "SecondService",
 			ClientConfig: c,
 		}, opts...),
+		adapterProvider: encoding.NopAdapterProvider,
 	}
+}
+
+// Config is a forwards compatible configuration struct for the SecondService service.
+type Config struct {
+	AdapterProvider encoding.AdapterProvider
+}
+
+// NewFromConfig builds a new client for the SecondService service.
+func NewFromConfig(cc transport.ClientConfig, cfg Config, opts ...thrift.ClientOption) (Interface, error) {
+	const thriftService = "SecondService"
+
+	thriftClient := thrift.New(thrift.Config{
+		Service:      thriftService,
+		ClientConfig: cc,
+	}, opts...)
+
+	if cfg.AdapterProvider == nil {
+		cfg.AdapterProvider = encoding.NopAdapterProvider
+	}
+	adapterClient, err := encoding2.NewAdapterClient(
+		encoding2.AdapterClientConfig{
+			ClientConfig: cc,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return client{
+		c:             thriftClient,
+		adapterClient: adapterClient,
+
+		thriftService:   thriftService,
+		cc:              cc,
+		adapterProvider: cfg.AdapterProvider,
+	}, nil
 }
 
 func init() {
@@ -68,7 +109,11 @@ func init() {
 }
 
 type client struct {
-	c thrift.Client
+	c               thrift.Client
+	adapterClient   encoding2.AdapterClient
+	thriftService   string
+	cc              transport.ClientConfig
+	adapterProvider encoding.AdapterProvider
 }
 
 func (c client) BlahBlah(
@@ -77,16 +122,39 @@ func (c client) BlahBlah(
 ) (err error) {
 
 	args := gauntlet.SecondService_BlahBlah_Helper.Args()
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.SecondService_BlahBlah_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.SecondService_BlahBlah_Result)
+		if !ok {
+			return fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.SecondService_BlahBlah_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	err = gauntlet.SecondService_BlahBlah_Helper.UnwrapResponse(&result)
@@ -100,16 +168,39 @@ func (c client) SecondtestString(
 ) (success string, err error) {
 
 	args := gauntlet.SecondService_SecondtestString_Helper.Args(_Thing)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.SecondService_SecondtestString_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.SecondService_SecondtestString_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.SecondService_SecondtestString_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.SecondService_SecondtestString_Helper.UnwrapResponse(&result)

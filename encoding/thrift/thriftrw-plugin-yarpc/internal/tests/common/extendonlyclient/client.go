@@ -5,9 +5,11 @@ package extendonlyclient
 
 import (
 	yarpc "go.uber.org/yarpc"
+	encoding "go.uber.org/yarpc/api/encoding"
 	transport "go.uber.org/yarpc/api/transport"
 	thrift "go.uber.org/yarpc/encoding/thrift"
 	baseserviceclient "go.uber.org/yarpc/encoding/thrift/thriftrw-plugin-yarpc/internal/tests/common/baseserviceclient"
+	encoding2 "go.uber.org/yarpc/pkg/encoding"
 	reflect "reflect"
 )
 
@@ -25,6 +27,7 @@ func New(c transport.ClientConfig, opts ...thrift.ClientOption) Interface {
 			Service:      "ExtendOnly",
 			ClientConfig: c,
 		}, opts...),
+		adapterProvider: encoding.NopAdapterProvider,
 
 		Interface: baseserviceclient.New(
 			c,
@@ -34,6 +37,50 @@ func New(c transport.ClientConfig, opts ...thrift.ClientOption) Interface {
 			)...,
 		),
 	}
+}
+
+// Config is a forwards compatible configuration struct for the ExtendOnly service.
+type Config struct {
+	AdapterProvider encoding.AdapterProvider
+}
+
+// NewFromConfig builds a new client for the ExtendOnly service.
+func NewFromConfig(cc transport.ClientConfig, cfg Config, opts ...thrift.ClientOption) (Interface, error) {
+	const thriftService = "ExtendOnly"
+
+	thriftClient := thrift.New(thrift.Config{
+		Service:      thriftService,
+		ClientConfig: cc,
+	}, opts...)
+
+	if cfg.AdapterProvider == nil {
+		cfg.AdapterProvider = encoding.NopAdapterProvider
+	}
+	adapterClient, err := encoding2.NewAdapterClient(
+		encoding2.AdapterClientConfig{
+			ClientConfig: cc,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return client{
+		c:             thriftClient,
+		adapterClient: adapterClient,
+
+		Interface: baseserviceclient.New(
+			cc,
+			append(
+				opts,
+				thrift.Named("ExtendOnly"),
+			)...,
+		),
+
+		thriftService:   thriftService,
+		cc:              cc,
+		adapterProvider: cfg.AdapterProvider,
+	}, nil
 }
 
 func init() {
@@ -47,5 +94,9 @@ func init() {
 type client struct {
 	baseserviceclient.Interface
 
-	c thrift.Client
+	c               thrift.Client
+	adapterClient   encoding2.AdapterClient
+	thriftService   string
+	cc              transport.ClientConfig
+	adapterProvider encoding.AdapterProvider
 }

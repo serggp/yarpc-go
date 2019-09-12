@@ -25,11 +25,15 @@ package thrifttestclient
 
 import (
 	context "context"
+	fmt "fmt"
 	wire "go.uber.org/thriftrw/wire"
 	yarpc "go.uber.org/yarpc"
+	encoding "go.uber.org/yarpc/api/encoding"
 	transport "go.uber.org/yarpc/api/transport"
 	thrift "go.uber.org/yarpc/encoding/thrift"
 	gauntlet "go.uber.org/yarpc/internal/crossdock/thrift/gauntlet"
+	encoding2 "go.uber.org/yarpc/pkg/encoding"
+	procedure "go.uber.org/yarpc/pkg/procedure"
 	reflect "reflect"
 )
 
@@ -176,7 +180,44 @@ func New(c transport.ClientConfig, opts ...thrift.ClientOption) Interface {
 			Service:      "ThriftTest",
 			ClientConfig: c,
 		}, opts...),
+		adapterProvider: encoding.NopAdapterProvider,
 	}
+}
+
+// Config is a forwards compatible configuration struct for the ThriftTest service.
+type Config struct {
+	AdapterProvider encoding.AdapterProvider
+}
+
+// NewFromConfig builds a new client for the ThriftTest service.
+func NewFromConfig(cc transport.ClientConfig, cfg Config, opts ...thrift.ClientOption) (Interface, error) {
+	const thriftService = "ThriftTest"
+
+	thriftClient := thrift.New(thrift.Config{
+		Service:      thriftService,
+		ClientConfig: cc,
+	}, opts...)
+
+	if cfg.AdapterProvider == nil {
+		cfg.AdapterProvider = encoding.NopAdapterProvider
+	}
+	adapterClient, err := encoding2.NewAdapterClient(
+		encoding2.AdapterClientConfig{
+			ClientConfig: cc,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return client{
+		c:             thriftClient,
+		adapterClient: adapterClient,
+
+		thriftService:   thriftService,
+		cc:              cc,
+		adapterProvider: cfg.AdapterProvider,
+	}, nil
 }
 
 func init() {
@@ -188,7 +229,11 @@ func init() {
 }
 
 type client struct {
-	c thrift.Client
+	c               thrift.Client
+	adapterClient   encoding2.AdapterClient
+	thriftService   string
+	cc              transport.ClientConfig
+	adapterProvider encoding.AdapterProvider
 }
 
 func (c client) TestBinary(
@@ -198,16 +243,39 @@ func (c client) TestBinary(
 ) (success []byte, err error) {
 
 	args := gauntlet.ThriftTest_TestBinary_Helper.Args(_Thing)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestBinary_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestBinary_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestBinary_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestBinary_Helper.UnwrapResponse(&result)
@@ -221,16 +289,39 @@ func (c client) TestByte(
 ) (success int8, err error) {
 
 	args := gauntlet.ThriftTest_TestByte_Helper.Args(_Thing)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestByte_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestByte_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestByte_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestByte_Helper.UnwrapResponse(&result)
@@ -244,16 +335,39 @@ func (c client) TestDouble(
 ) (success float64, err error) {
 
 	args := gauntlet.ThriftTest_TestDouble_Helper.Args(_Thing)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestDouble_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestDouble_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestDouble_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestDouble_Helper.UnwrapResponse(&result)
@@ -267,16 +381,39 @@ func (c client) TestEnum(
 ) (success gauntlet.Numberz, err error) {
 
 	args := gauntlet.ThriftTest_TestEnum_Helper.Args(_Thing)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestEnum_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestEnum_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestEnum_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestEnum_Helper.UnwrapResponse(&result)
@@ -290,16 +427,39 @@ func (c client) TestException(
 ) (err error) {
 
 	args := gauntlet.ThriftTest_TestException_Helper.Args(_Arg)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestException_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestException_Result)
+		if !ok {
+			return fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestException_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	err = gauntlet.ThriftTest_TestException_Helper.UnwrapResponse(&result)
@@ -313,16 +473,39 @@ func (c client) TestI32(
 ) (success int32, err error) {
 
 	args := gauntlet.ThriftTest_TestI32_Helper.Args(_Thing)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestI32_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestI32_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestI32_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestI32_Helper.UnwrapResponse(&result)
@@ -336,16 +519,39 @@ func (c client) TestI64(
 ) (success int64, err error) {
 
 	args := gauntlet.ThriftTest_TestI64_Helper.Args(_Thing)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestI64_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestI64_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestI64_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestI64_Helper.UnwrapResponse(&result)
@@ -359,16 +565,39 @@ func (c client) TestInsanity(
 ) (success map[gauntlet.UserId]map[gauntlet.Numberz]*gauntlet.Insanity, err error) {
 
 	args := gauntlet.ThriftTest_TestInsanity_Helper.Args(_Argument)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestInsanity_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestInsanity_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestInsanity_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestInsanity_Helper.UnwrapResponse(&result)
@@ -382,16 +611,39 @@ func (c client) TestList(
 ) (success []int32, err error) {
 
 	args := gauntlet.ThriftTest_TestList_Helper.Args(_Thing)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestList_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestList_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestList_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestList_Helper.UnwrapResponse(&result)
@@ -405,16 +657,39 @@ func (c client) TestMap(
 ) (success map[int32]int32, err error) {
 
 	args := gauntlet.ThriftTest_TestMap_Helper.Args(_Thing)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestMap_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestMap_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestMap_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestMap_Helper.UnwrapResponse(&result)
@@ -428,16 +703,39 @@ func (c client) TestMapMap(
 ) (success map[int32]map[int32]int32, err error) {
 
 	args := gauntlet.ThriftTest_TestMapMap_Helper.Args(_Hello)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestMapMap_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestMapMap_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestMapMap_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestMapMap_Helper.UnwrapResponse(&result)
@@ -456,16 +754,39 @@ func (c client) TestMulti(
 ) (success *gauntlet.Xtruct, err error) {
 
 	args := gauntlet.ThriftTest_TestMulti_Helper.Args(_Arg0, _Arg1, _Arg2, _Arg3, _Arg4, _Arg5)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestMulti_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestMulti_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestMulti_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestMulti_Helper.UnwrapResponse(&result)
@@ -480,16 +801,39 @@ func (c client) TestMultiException(
 ) (success *gauntlet.Xtruct, err error) {
 
 	args := gauntlet.ThriftTest_TestMultiException_Helper.Args(_Arg0, _Arg1)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestMultiException_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestMultiException_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestMultiException_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestMultiException_Helper.UnwrapResponse(&result)
@@ -503,16 +847,39 @@ func (c client) TestNest(
 ) (success *gauntlet.Xtruct2, err error) {
 
 	args := gauntlet.ThriftTest_TestNest_Helper.Args(_Thing)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestNest_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestNest_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestNest_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestNest_Helper.UnwrapResponse(&result)
@@ -535,16 +902,39 @@ func (c client) TestSet(
 ) (success map[int32]struct{}, err error) {
 
 	args := gauntlet.ThriftTest_TestSet_Helper.Args(_Thing)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestSet_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestSet_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestSet_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestSet_Helper.UnwrapResponse(&result)
@@ -558,16 +948,39 @@ func (c client) TestString(
 ) (success string, err error) {
 
 	args := gauntlet.ThriftTest_TestString_Helper.Args(_Thing)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestString_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestString_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestString_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestString_Helper.UnwrapResponse(&result)
@@ -581,16 +994,39 @@ func (c client) TestStringMap(
 ) (success map[string]string, err error) {
 
 	args := gauntlet.ThriftTest_TestStringMap_Helper.Args(_Thing)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestStringMap_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestStringMap_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestStringMap_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestStringMap_Helper.UnwrapResponse(&result)
@@ -604,16 +1040,39 @@ func (c client) TestStruct(
 ) (success *gauntlet.Xtruct, err error) {
 
 	args := gauntlet.ThriftTest_TestStruct_Helper.Args(_Thing)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestStruct_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestStruct_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestStruct_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestStruct_Helper.UnwrapResponse(&result)
@@ -627,16 +1086,39 @@ func (c client) TestTypedef(
 ) (success gauntlet.UserId, err error) {
 
 	args := gauntlet.ThriftTest_TestTypedef_Helper.Args(_Thing)
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestTypedef_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestTypedef_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestTypedef_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = gauntlet.ThriftTest_TestTypedef_Helper.UnwrapResponse(&result)
@@ -649,16 +1131,39 @@ func (c client) TestVoid(
 ) (err error) {
 
 	args := gauntlet.ThriftTest_TestVoid_Helper.Args()
-
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result gauntlet.ThriftTest_TestVoid_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return err
+		}
+
+		var ok bool
+		result, ok = res.(gauntlet.ThriftTest_TestVoid_Result)
+		if !ok {
+			return fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'gauntlet.ThriftTest_TestVoid_Result', got '%T'", res)
+		}
+
+	} else {
+
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	err = gauntlet.ThriftTest_TestVoid_Helper.UnwrapResponse(&result)

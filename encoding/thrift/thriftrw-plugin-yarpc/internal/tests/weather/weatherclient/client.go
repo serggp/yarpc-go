@@ -5,12 +5,16 @@ package weatherclient
 
 import (
 	context "context"
+	fmt "fmt"
 	tchannel "github.com/uber/tchannel-go"
 	wire "go.uber.org/thriftrw/wire"
 	yarpc "go.uber.org/yarpc"
+	encoding "go.uber.org/yarpc/api/encoding"
 	transport "go.uber.org/yarpc/api/transport"
 	thrift "go.uber.org/yarpc/encoding/thrift"
 	weather "go.uber.org/yarpc/encoding/thrift/thriftrw-plugin-yarpc/internal/tests/weather"
+	encoding2 "go.uber.org/yarpc/pkg/encoding"
+	procedure "go.uber.org/yarpc/pkg/procedure"
 	reflect "reflect"
 )
 
@@ -31,7 +35,44 @@ func New(c transport.ClientConfig, opts ...thrift.ClientOption) Interface {
 			Service:      "Weather",
 			ClientConfig: c,
 		}, opts...),
+		adapterProvider: encoding.NopAdapterProvider,
 	}
+}
+
+// Config is a forwards compatible configuration struct for the Weather service.
+type Config struct {
+	AdapterProvider encoding.AdapterProvider
+}
+
+// NewFromConfig builds a new client for the Weather service.
+func NewFromConfig(cc transport.ClientConfig, cfg Config, opts ...thrift.ClientOption) (Interface, error) {
+	const thriftService = "Weather"
+
+	thriftClient := thrift.New(thrift.Config{
+		Service:      thriftService,
+		ClientConfig: cc,
+	}, opts...)
+
+	if cfg.AdapterProvider == nil {
+		cfg.AdapterProvider = encoding.NopAdapterProvider
+	}
+	adapterClient, err := encoding2.NewAdapterClient(
+		encoding2.AdapterClientConfig{
+			ClientConfig: cc,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return client{
+		c:             thriftClient,
+		adapterClient: adapterClient,
+
+		thriftService:   thriftService,
+		cc:              cc,
+		adapterProvider: cfg.AdapterProvider,
+	}, nil
 }
 
 func init() {
@@ -43,7 +84,11 @@ func init() {
 }
 
 type client struct {
-	c thrift.Client
+	c               thrift.Client
+	adapterClient   encoding2.AdapterClient
+	thriftService   string
+	cc              transport.ClientConfig
+	adapterProvider encoding.AdapterProvider
 }
 
 func (c client) Check(
@@ -52,17 +97,40 @@ func (c client) Check(
 ) (success string, err error) {
 
 	args := weather.Weather_Check_Helper.Args()
-
-	ctx = tchannel.WithoutHeaders(ctx)
-	var body wire.Value
-	body, err = c.c.Call(ctx, args, opts...)
-	if err != nil {
-		return
-	}
+	procedureName := procedure.ToName(c.thriftService, args.MethodName())
 
 	var result weather.Weather_Check_Result
-	if err = result.FromWire(body); err != nil {
-		return
+
+	if adapter, ok := c.adapterProvider.Adapter(procedureName); ok {
+		tReq := &transport.Request{
+			Caller:    c.cc.Caller(),
+			Service:   c.cc.Service(),
+			Encoding:  thrift.Encoding,
+			Procedure: procedureName,
+		}
+		res, err := c.adapterClient.Call(ctx, tReq, args, adapter, opts...)
+		if err != nil {
+			return success, err
+		}
+
+		var ok bool
+		result, ok = res.(weather.Weather_Check_Result)
+		if !ok {
+			return success, fmt.Errorf("thrift adapter returned invalid type for procedure, expected 'weather.Weather_Check_Result', got '%T'", res)
+		}
+
+	} else {
+
+		ctx = tchannel.WithoutHeaders(ctx)
+		var body wire.Value
+		body, err = c.c.Call(ctx, args, opts...)
+		if err != nil {
+			return
+		}
+
+		if err = result.FromWire(body); err != nil {
+			return
+		}
 	}
 
 	success, err = weather.Weather_Check_Helper.UnwrapResponse(&result)
