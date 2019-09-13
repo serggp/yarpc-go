@@ -11,7 +11,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   combination of inbound and outbound, for success, failure, and application
   error.
 - A peer list and transport stress tester is now in the `yarpctest` package.
+<<<<<<< HEAD
 - Added `direct` peer chooser to enable directly addressable peers.
+=======
+- Added custom dialer option for gRPC.
+>>>>>>> c11dbd63... Add custom dialer function to gRPC
 
 ## [1.39.0] - 2019-06-25
 ### Fixed
